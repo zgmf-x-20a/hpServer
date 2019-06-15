@@ -1,0 +1,62 @@
+﻿ 
+path = class {
+	ctor( session,db ){
+		this.session  = session;//检查是否有问题
+		this.db = db;
+	};
+	queryRequest = function(uri){
+		if !#uri return this.errorPath(1); 
+		var paths = ..string.split(uri,"</>");
+		if (paths[1] == "") ..table.remove(paths,1); 
+		if (#paths = 0) return this.errorPath(2); 
+		var domain = paths[1]
+		
+		var nextObj;
+		for i=1;#paths;1{
+			var path_name = paths[i];
+			nextObj = nextObj?nextObj[path_name]:self[path_name];
+			if (!nextObj) return this.errorPath(3); 	
+		}
+		if (type(nextObj) == type.table) nextObj = nextObj["main.aardio"]
+		if (type(nextObj) != type.function) return this.errorPath(4); 
+
+		return true,nextObj; 
+	}
+	errorPath = function(text){
+		return false,"403 Forbidden:" ++ text:""; 
+	}
+	isDebugInfo = function(ip){
+		for index = 1;#_debug_ipList;1{
+			if _debug_ipList[index] == ip return true; 	
+		}
+		return false; 
+	}
+}
+
+namespace path;
+//引入其余的路径库
+//import path.file;
+
+_debug_ipList = {
+	"127.0.0.1";
+}
+
+//需要包含的文件
+_fileList = {};
+
+checkServer = function(request,response,dbase,tSession){
+	var request_method = request.method;
+	if (request_method == 'GET'){
+		return {
+			statue = true;
+			["time"] = ..time();
+			text = "欢迎测试服务器！"
+		}; 		
+	}
+	else {
+		//..console.log(request.post["test"])
+		return "403 Forbidden"; 
+	}
+}
+
+

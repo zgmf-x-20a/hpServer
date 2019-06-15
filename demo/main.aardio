@@ -1,0 +1,110 @@
+import console;
+import win;
+import hpServer; 
+import inet.httpStatusCode;
+import hpServer.helper;
+
+import thread.command;
+
+io.open()
+//-------------创建线程及Server的消息窗口------------
+var msgForm = win.form(text="hpHttpServerLoop");
+msgForm.messageOnly();
+
+//------------------创建Server对象--------------------
+server	 = hpServer(serverPort,,msgForm,8,1,10000); 
+//---------------线程交互监听接口-------------------------
+server.onThreadCreated = function(){
+	import path;//
+	import web.json;
+	
+	::JSON_HEADER = string.unhex("7B0D0A","")
+    pathHandler		= path()
+    
+    httpProcessor = function(request,response){
+		var connId 		= request.connId;
+    	var remoteAddr	= request.remoteAddr;
+    	
+    	var path = request.path;
+    	
+    	var statue,func = pathHandler.queryRequest(path);
+    	if (!statue) return response.write("501 / 无法识别的请求信息");		
+    	
+		try{
+			//执行对应过程，通过返回值判断发送字符串还是原来的table数据
+			var data = func(request,response,dbase,tSession)
+			if (type(data) = type.table) 
+				return response.write(
+					..web.json.stringify(data,true)
+				);
+			return response.write(data);
+		}
+		catch(e){
+			if (pathHandler.isDebugInfo(remoteAddr)) response.errText = e;
+			return response.write("500 / 服务器内部错误");
+		}
+	}
+    
+    wsMessageProcess = function(request,response){
+    	var connId 		= request.connId;
+    	var remoteAddr	= request.remoteAddr;
+    	
+		if (..string.sub(request.data,1,3) == ::JSON_HEADER){
+			var isOK,data = call( web.json.parse, web.json, request.data, true);
+
+			request.data = data;
+			
+			if (!isOK) return response.write("UNKNOW COMMAND"); 
+			
+			request.data.server = "hpServer response";
+			
+			response.write(request.data)
+		}
+		else {//二进制的
+			return response.sendWsMessage("UNKNOW COMMAND"); 
+		}
+	}
+	
+	//onThreadCreateError = true;
+}
+
+server.onRequest = function(hpHttpServer,event,request,response){
+	if (event = 1){
+    	httpProcessor(request,response)
+    }
+    elseif (event = 2) {
+		wsMessageProcess(request,response)
+    }	
+}
+
+server.onThreadEnd = function(hpHttpServer,thread_id){
+	io.print("线程退出了")
+}
+
+server.updateThreadCall() //使回调生效
+
+//响应客户端状态变化
+server.onStateChange = function(statue,connId){
+    var ip,port = server.socket.getRemoteAddress(connId);
+    select (statue){
+   		case "onClose"{
+			console.log("onStateChange",statue)
+    	}
+    	case "onHandShake"{
+    		console.log("onStateChange",statue)
+    	}
+    	case "onUpgrade"{
+    		console.log("onStateChange",statue,id)
+    	}
+    }
+}
+
+console.log("Server Thread Start 状态:",server.start(,8081))
+//-------------------循环处理请求过程------------------------------
+server.loopMessage();//在窗口中用server.quickMessage()退出循环
+
+server.quit();
+console.log("Server Thread End")
+
+
+console.pause();

@@ -1,0 +1,317 @@
+﻿import inet.url;
+import hpsocket.helper.headers;
+import inet.httpStatusCode;
+import web.json;
+import wsock;
+
+namespace hpServer;
+namespace message;
+
+class wsMessageSimple{
+	ctor( connId,addr,port,final,reserved,opCode,mask,bodyLen,bodyRemain,pData){
+		this.connId		= connId;
+		this.remoteAddr	= addr;
+		this.remotePort	= port;
+		this.final		= final;
+		this.reserved 	= reserved;
+		this.opCode 	= opCode;
+		this.mask 		= mask;
+		this.bodyLen 	= bodyLen;
+		this.bodyRemain = bodyRemain;
+		
+		if ( type(pData) == type.buffer ){
+			this.data = pData
+		}
+		elseif (type(pData) == type.pointer) {
+			this.data = ..raw.tostring(pData,1, ..raw.sizeof(pData) );
+		}
+	};
+}
+
+class httpRequestSimple{
+    ctor(connId,remoteAddr,remotePort,localAddr,localPort,host,method,uri,header,pData){
+		this.connId			= connId;
+    	this.remoteAddr		= remoteAddr;
+	    this.port			= remotePort;
+	    this.localAddr		= localAddr;
+	    this.localPort		= localPort;
+	    this.host			= host;
+	    this.method			= method;
+	    this.uri			= uri;
+	    this.headers		= ..hpsocket.helper.headers(header)
+	    this.contentLength	= this.headers.get("contentlength");
+	    
+	    this.cookies		= {};
+	    this.postStruct		= {};
+	    this.body			= null;
+	    
+	    var path 			= ..string.split(uri:"","<?>");
+	    this.url			= path[1];
+	    //..io.print("uri",uri)
+	    this.queryString	= ..inet.url.splitParameters(path[2]:"","\&\s*");
+	    
+	    //-------------处理Cookies-------------------------
+	    var cookies = this.headers.get("cookie");
+		if type(cookies) == type.string{
+			cookies = { cookies };
+		}
+		var value;
+		for k,v in cookies{
+			value = ..string.split(v:"","<=>");
+			if (value[1]) this.cookies[value[1]] = value[2];
+		}
+		//-------------处理post数据-------------------------
+		//..console.log("method",method,..raw.sizeof(pData),pData)
+		if ( type(pData) == type.buffer ){
+			this.body = pData
+		}
+		elseif (type(pData) == type.pointer) {
+			this.body = ..raw.tostring(pData,1,..raw.sizeof(pData) );
+		}
+		
+		if (this.body) this.postStruct = ..inet.url.splitParameters(this.body,'\&')
+
+		this.post  = {
+			@{
+				_get = function(k){
+					return this.postStruct[k];
+				}
+				_call = function(k){
+					return this.postStruct[k];
+				}
+			}
+		}
+		this.path = this.url;
+    };
+    query = function(k){
+		return this.queryString[k];
+	}
+	getHeader = function(k){
+		if (#k) return this.headers.get(k); 
+		return this.headers.headers();
+	}
+	postData = function(){
+		return this.body;
+	}
+}
+
+
+httpResponse = function(request,socket){
+	return   
+	{
+		connId				= request.connId;
+		headers 			= {}
+		header				= ..hpsocket.helper.headers();
+		cookies 			= {};
+		["Content-Type"]	= "text/html";
+		status				= 200;
+		date				= tostring(..time.gmt());
+		host				= request.localAddr;
+		data				= {};
+		socket				= socket;
+		charset				= "UTF-8";
+		cookiePath			= "/";
+		["write"]			= function(s,...){
+			if owner.closed return null; 
+			..table.push(owner.data,s);
+			if (...) {	return owner.write(...); }//还有数据的话，进行拼接
+			if owner.contentType {//兼容SimpleHttp的语法
+				owner["Content-Type"] = owner.contentType;
+			}
+			else {
+				owner["Content-Type"] = ..string.concat(owner["Content-Type"],"; charset=",owner.charset);
+			}
+
+			var internalText = {"connId";"headers";"header";"cookies";"status";"data";"write";"host";"socket";"charset";"cookiePath";"contentType"}
+			
+			for k,j in owner{
+				for i=1;#internalText;1{
+					if (internalText[i] == k) continue 2;
+				}
+				owner.header.add(k,tostring(j));
+			}
+			
+			for k,j in owner.headers{
+				owner.header.add(k,tostring(j));
+			}
+			
+			for k,v in owner.cookies{
+				if ( type(v) == type.table ) { 
+					if( !v.value ){
+						owner.header.add("Set-Cookie:",..string.concat(..inet.url.encode(k)
+							,"=deleted; expires=",tostring( ..time.gmt(1))) ); 
+						continue ; 
+					}
+					
+        			var s = { ..inet.url.encode(tostring(v.value)) };
+													
+					if(v.expires && ..time.istime(v.expires)  ){ 
+						push(s,"expires=" + tostring( ..time.gmt(v.expires) ) );
+					}
+					elseif(v.maxAge){
+						push(s,"max-age=" + v.maxAge );
+					};
+					..table.push(s,"domain=" ++ owner.host);
+					..table.push(s,"path=" ++  (v.path : owner.cookiePath) );
+        			owner.header.add("Set-Cookie",..string.concat(..inet.url.encode(k),"=",..string.join(s,"; ")));
+        		}
+        		else {
+        			if( v=="" ){
+						owner.header.add("Set-Cookie:",..string.concat(..inet.url.encode(k)
+							,"=deleted; expires=", tostring( ..time.gmt(1))) );  
+					}
+					else{
+						owner.header.add("Set-Cookie:",..string.concat(..inet.url.encode(k),"=",..inet.url.encode(tostring(v)),
+							'; domain=',owner.host ,"; path=",owner.cookiePath));
+					}
+        		}
+    		}
+    		
+    		owner.closed = true;
+    		return owner.socket.sendResponse(owner.connId,..string.join(owner.data),
+    				owner.header, owner.status,..inet.httpStatusCode.en[owner.status])
+
+		};
+	}
+}
+
+buildRequest = function(tagMsg,socket){
+    var request,response;
+    if (tagMsg.msgType = 1){
+        request = httpRequestSimple(tagMsg.connId,
+        				..wsock.inet_ntoa(tagMsg.remoteAddr),
+        				tagMsg.remotePort,
+        				..wsock.inet_ntoa(tagMsg.localAddr),
+        				tagMsg.localPort,
+						..raw.tostring(tagMsg.host,1,..raw.sizeof(tagMsg.host)),
+						..raw.tostring(tagMsg.method,1,..raw.sizeof(tagMsg.method)),
+						..raw.tostring(tagMsg.uri,1,..raw.sizeof(tagMsg.uri)),
+						..raw.tostring(tagMsg.pHeader,1,..raw.sizeof(tagMsg.pHeader)),
+						tagMsg.pData );
+		response = httpResponse(request,socket)
+		
+    }
+    elseif(tagMsg.msgType = 2){
+        request = wsMessageSimple(tagMsg.connId,
+        				..wsock.inet_ntoa(tagMsg.remoteAddr),
+        				tagMsg.remotePort,
+        				tagMsg.final,
+        				tagMsg.reserved,
+        				tagMsg.opCode,
+        				tagMsg.mask,
+        				tagMsg.bodyLen,
+        				tagMsg.bodyRemain,
+        				tagMsg.pData)
+       response = websocketTask(request,socket)
+    }
+    return request,response; 
+}
+
+websocketTask = class{
+	ctor( request, socket){
+		this.socket = socket;
+		this.connId = request.connId;
+		this.connected = true;
+	};
+	close = function(){
+		this.socket.disconnect(this.connId);
+		this.connected = false;
+	}
+	send = function(...){
+		if (!this.connected) return false; 
+		return this.socket.sendWsMessage(this.connId,...)
+	}
+	write = function(data,...){
+		if (type(data) == type.table) data = ..web.json.stringify(data,true)
+		return this.send(data,...); 
+	}
+}
+
+responseData = class {
+	ctor( msgType, t_id ){
+		//this.msgId	= msgId;
+		this.msgType= msgType
+		//this.connId	= connId;
+		this.t_id	= t_id;
+		this.msgArray = {};
+		this.statue = 0;
+	};
+	baseInfo = function(msgId,connId){
+		this.msgId	= msgId;
+		this.connId	= connId;
+	};
+	addData = function(body,header,code,msgType,connId,mask){
+		var msg = {
+			connId	= connId:this.connId;
+			msgType	= msgType:this.msgType;
+			body	= body;
+			header	= header;
+			code	= code;
+			mask	= mask;
+		}
+		..table.push(this.msgArray,msg);
+	};
+	addHttpData = function(body,header,code,connId){
+		this.addData(body,header,code,1,connId)
+	};
+	addWsData = function(body,connId,mask){
+		this.addData(body,,,2,connId,mask)
+	};
+	setStatue = function(statue){
+		this.statue = statue
+	}
+	struct = function(){
+		var strc = {
+    		BYTE statue = this.statue;
+			INT tid		= this.t_id;
+			INT index	= this.msgId;
+			INT msgtype	= this.msgType;
+			INT timpstamp = tonumber(..time());
+			INT length	= #this.msgArray;
+			INT connIds[] = { length = #this.msgArray }
+			INT msgTypes[] = { length = #this.msgArray }
+			INT codes[]	= { length = #this.msgArray }
+			INT masks[]	= { length = #this.msgArray }
+			INT headers[] = { length = #this.msgArray };
+			INT bodys[] = { length = #this.msgArray };
+		}
+
+		for index=1;#this.msgArray;1{
+			var msg = this.msgArray[index]
+			
+			strc.connIds[index]	= msg.connId
+			strc.msgTypes[index]= msg.msgType
+			strc.codes[index]	= msg.code
+			strc.masks[index]	= msg.mask
+			
+			//--------将字符串转成指针-----
+			var pBody,pHeader;
+			if ( type(msg.body)==type.pointer)	pBody = tonumber(msg.body)//是指针的话直接赋值
+			if ( type(msg.header)==type.pointer) pHeader = tonumber(msg.header)//是指针的话直接赋值
+			
+			if ( !pBody or(msg.body != null) ){ //pBody为空，且数据不为空时
+				for exist=1;(index-1);1{
+					if (this.msgArray[exist].body == msg.body){
+						pBody = strc.bodys[exist]
+						break ;	
+					}
+				}
+				pBody := tonumber(..raw.realloc(#msg.body,,msg.body):0)
+			}
+			strc.bodys[index] = pBody
+			
+			if ( !pHeader or(msg.header != null) ){ //pHeader为空，且数据不为空时
+				for exist=1;(index-1);1{
+					if (this.msgArray[exist].header == msg.header){
+						pHeader = strc.headers[exist]
+						break ;	
+					}
+				}
+				pHeader := tonumber(..raw.realloc(#msg.header,,msg.header):0)
+			}
+			strc.headers[index]	= pHeader
+		}
+		
+		return strc; 
+	}
+}
