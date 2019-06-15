@@ -1,0 +1,80 @@
+﻿
+namespace hpServer;
+
+msgPool = class {
+	ctor( ){
+		this.count = 0
+		this.messages = msgPoolStruct()
+	}
+	addMsg = function(f,t,v,ptr){ //由线程唤醒的，需要加锁
+		if (!f) return null,false; 
+
+		if (this.lock) return null,true; 
+		
+		this.lock = true;
+		this.count ++;
+		var index = this.count;
+		this.lock = false;
+		
+		//v.poolIndex = index;//此处赋予结构体index，以便执行完后能回传index销毁消息
+		this.messages[f][index] = {t = t;	v = v;}
+		
+		return index; 
+	}
+	peekMsg = function(f,index){
+		if (!f) return null,"TYPE ERROR"
+		if (!index) return null,"INDEX ERROR";
+		
+		var msg = this.messages[f][index];
+		if (msg) return msg.t,msg.v; 
+		return null,"DATA ERROR"; 
+	}
+	delMsg = function(f,index){
+		var t,v = this.peekMsg(f,index);
+		if (t == null) return t,v;
+		
+		this.messages[f][index] = null;
+		return t,v; 
+	}
+	recv = function(t,v){
+		if (this.quit) return -1; 
+		var index,lock = this.addMsg("recv",t,v);
+		if (index == null) return 0,lock; //被锁后，需要返回空值
+		
+		this.messages.wait[index] = 1;
+		return index; 
+	}
+	setNoWait = function(index){
+		this.messages.wait[index] = null;
+		this.messages["recv"][index] = null;//清理recv消息
+	}
+	waitMsg = function(){//该消息不允许由线程消息触发，否则线程不安全；
+		var list = {}
+		for index,data in this.messages.wait {
+			..table.push(list,index)
+		}
+		if (#list = 0) return false;  
+		return list; 
+	}
+}
+
+namespace msgPool{
+	msgPoolStruct = function(){
+		return {
+			recv = {};//收到的请求
+			wait = {};//等待处理的请求清单
+		}; 
+	}
+}
+
+/**intellisense()
+hpServer.msgPool() = hpServer需要用到的消息池\n!hpServerMsgCache
+end intellisense**/
+
+/**intellisense(!hpServerMsgCache)
+recv(.(type,value) = 添加消息
+delMsg（.("recv",index) = 删除消息
+peekMsg（.("recv",index) = 获取指定index的消息
+waitMsg(.() = 待处理的消息序号，返回数组
+setNoWait(.(index) = 在待处理消息队列中删除指定信息
+end intellisense**/
