@@ -1,4 +1,5 @@
 # hpServer
+
 hpServer 是 aardio 编写的，基于 hpsocket 的 HTTP 服务端。
 hpServer 内置有线程池及消息池，便于处理执行时间较长的请求。
 
@@ -14,3 +15,5 @@ onRequest 返回了 request,response 两个对象。
 具体见 message.wsMessageSimple, message.websocketTask。
 
 目前每个线程会造成 5 个字节的内存泄漏，有兴趣的可以帮忙核实一下。
+
+若 Hpsocket库有问题，请使用 httpAgent 中提供的版本覆盖。
