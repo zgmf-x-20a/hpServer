@@ -14,6 +14,8 @@ onRequest 返回了 request,response 两个对象。
 对于WS消息，request，response 基本与 httpAgent 返回的消息，wsTask 一致。
 具体见 message.wsMessageSimple, message.websocketTask。
 
-目前每个线程会造成 5 个字节的内存泄漏，有兴趣的可以帮忙核实一下。
+目前每个线程可能会造成 5 个字节的内存泄漏，有兴趣的可以帮忙核实一下。
 
 若 Hpsocket库有问题，请使用 httpAgent 中提供的版本覆盖。
+
+感谢 王港 的技术支持。
